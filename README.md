@@ -9,7 +9,7 @@ The Met Museum dijital arşivi ile usta ressamlar, derin yakınlaştırma (deep 
 
 ## 🚀 Hızlı Başlangıç
 1. Bu repoyu klonlayın.
-2.  dosyasını tarayıcıda açın.
+2. `index.html` dosyasını tarayıcıda açın.
 
 
 
