@@ -101,30 +101,67 @@ async function translateToTr(text) {
   return out;
 }
 
-// Kartlar cizildikten sonra acıklamaları sirayla cevirip doldurur (cizimi bloklamaz)
-async function hydrateDescriptions(list) {
-  const targets = (list || []).filter(a => ((a.objectNote || '') + '').trim().length > 20);
-  for (const item of targets) {
+// Acıklama YALNIZCA detay modalinda gosterilir (kullanicinin 2026-09-29 talimati).
+// Met API'de objectNote alani buyuk olcude bos donuyor (2026-09-29 dogrulandi: 34/34 eser bos);
+// bu yuzden Met notu bos ise Vikipedi ozeti (CORS-acik) kaynak olarak kullanilir.
+async function hydrateModalDescription(item) {
+  const box = document.getElementById('modal-desc-box');
+  const el = document.getElementById('modal-art-desc');
+  const srcEl = document.getElementById('modal-art-desc-source');
+  if (!box || !el) return;
+  const oid = item.objectID;
+
+  // Modal her acilista onceden doldurulmus metni temizle
+  box.classList.add('hidden');
+  el.innerText = '';
+  if (srcEl) srcEl.innerText = '';
+
+  let src = ((item.objectNote || '') + '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  let sourceLabel = 'The Met katalog notu';
+
+  if (src.length < 30) {
+    // Vikipedi fallback: baslik + sanatci aramasi, giris paragrafi
     try {
-      const cache = getDescCache();
-      let tr = cache[item.objectID];
-      if (!tr) {
-        const src = ((item.objectNote || '') + '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 450);
-        tr = await translateToTr(src);
-        cache[item.objectID] = tr;
-        setDescCache(cache);
-      }
-      // Grid arada yeniden cizilmis olabilir, elemanı simdiden tekrar al
-      const el = document.getElementById('desc-' + item.objectID);
-      if (el && tr) {
-        el.innerText = tr;
-        el.title = 'The Met katalog acıklaması — otomatik cevirilen metin';
-        el.classList.remove('hidden');
-      }
+      const q = [item.title, item.artistDisplayName].filter(Boolean).join(' ');
+      const wikiUrl = 'https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrnamespace=0&gsrlimit=1&prop=extracts&exintro&explaintext&format=json&origin=*&gsrsearch=' + encodeURIComponent(q);
+      const res = await fetch(wikiUrl);
+      const data = await res.json();
+      const pages = (data.query && data.query.pages) || {};
+      const first = Object.values(pages)[0];
+      src = ((first && first.extract) || '').replace(/\s+/g, ' ').trim();
+      sourceLabel = 'Vikipedi';
     } catch(e) {
-      // ceviride hata: kart eski temiz halinde kalır
+      src = '';
     }
   }
+
+  if (src.length < 30) return; // kaynak yok: kutu gizli kalir
+  src = src.slice(0, 400);
+
+  // Modal arada kapanmis/baska esere gecmis olabilir
+  const isStillOpen = () => currentModalArt && currentModalArt.objectID === oid;
+
+  const cache = getDescCache();
+  let tr = cache[oid];
+  let translated = !!tr;
+  if (!tr) {
+    try {
+      tr = await translateToTr(src);
+      cache[oid] = tr;
+      setDescCache(cache);
+      translated = true;
+    } catch(e) {
+      tr = src; // ceviride hata: Ingilizce orijinal gosterilir
+      translated = false;
+    }
+    if (!isStillOpen()) return;
+  }
+
+  el.innerText = tr;
+  if (srcEl) {
+    srcEl.innerText = '📖 Kaynak: ' + sourceLabel + (translated ? ' • otomatik cevirilen metin' : ' • otomatik ceiri yapilamadi, orijinal dilinde gosteriliyor');
+  }
+  if (isStillOpen()) box.classList.remove('hidden');
 }
 
 // 2. Eser Kartlarını Çiz
@@ -165,7 +202,6 @@ function renderArtworks(list) {
             <h3 class="font-bold text-sm text-mistral-ink group-hover:text-purple-400 transition truncate">${item.title}</h3>
             <p class="text-xs text-purple-400/90 font-medium truncate mt-0.5">${artist}</p>
             <p class="text-[11px] text-mistral-slate font-mono mt-0.5 truncate">${date || item.medium || 'The Met'}</p>
-            <p id="desc-${item.objectID}" class="text-[11px] text-mistral-slate leading-relaxed mt-2 line-clamp-3 hidden"></p>
           </div>
 
           <div class="pt-3 border-t border-mistral-hairline flex items-center justify-between mt-3">
@@ -179,7 +215,6 @@ function renderArtworks(list) {
         </div>
       `;
     }).join('');
-    hydrateDescriptions(list);
   }
 }
 
@@ -216,6 +251,7 @@ async function openDeepZoomModal(id) {
 
     resetZoom();
     updateModalSaveButtonState();
+    hydrateModalDescription(item);
     const modal = document.getElementById('zoom-modal');
     if (modal) modal.classList.remove('hidden');
   } catch(e) {
