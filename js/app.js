@@ -73,6 +73,60 @@ function showLoading(show) {
   }
 }
 
+// ===== Otomatik TR Acıklama Cevirmesi (The Met objectNote → MyMemory API, anahtarsız/CORS-acık) =====
+const DESC_CACHE_KEY = '***';
+
+function getDescCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DESC_CACHE_KEY) || '{}');
+    return (raw && typeof raw === 'object') ? raw : {};
+  } catch(e) { return {}; }
+}
+
+function setDescCache(cache) {
+  try {
+    if (Object.keys(cache).length > 600) return; // kota/doğru orantılı bellek koruması
+    localStorage.setItem(DESC_CACHE_KEY, JSON.stringify(cache));
+  } catch(e) {}
+}
+
+async function translateToTr(text) {
+  const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=en|tr';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  if (data.responseStatus !== 200) throw new Error('ceviri servisi durumu: ' + data.responseStatus);
+  const out = data.responseData && data.responseData.translatedText;
+  if (!out || out === text) throw new Error('bos ceviri');
+  return out;
+}
+
+// Kartlar cizildikten sonra acıklamaları sirayla cevirip doldurur (cizimi bloklamaz)
+async function hydrateDescriptions(list) {
+  const targets = (list || []).filter(a => ((a.objectNote || '') + '').trim().length > 20);
+  for (const item of targets) {
+    try {
+      const cache = getDescCache();
+      let tr = cache[item.objectID];
+      if (!tr) {
+        const src = ((item.objectNote || '') + '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 450);
+        tr = await translateToTr(src);
+        cache[item.objectID] = tr;
+        setDescCache(cache);
+      }
+      // Grid arada yeniden cizilmis olabilir, elemanı simdiden tekrar al
+      const el = document.getElementById('desc-' + item.objectID);
+      if (el && tr) {
+        el.innerText = tr;
+        el.title = 'The Met katalog acıklaması — otomatik cevirilen metin';
+        el.classList.remove('hidden');
+      }
+    } catch(e) {
+      // ceviride hata: kart eski temiz halinde kalır
+    }
+  }
+}
+
 // 2. Eser Kartlarını Çiz
 function renderArtworks(list) {
   showLoading(false);
@@ -111,6 +165,7 @@ function renderArtworks(list) {
             <h3 class="font-bold text-sm text-mistral-ink group-hover:text-purple-400 transition truncate">${item.title}</h3>
             <p class="text-xs text-purple-400/90 font-medium truncate mt-0.5">${artist}</p>
             <p class="text-[11px] text-mistral-slate font-mono mt-0.5 truncate">${date || item.medium || 'The Met'}</p>
+            <p id="desc-${item.objectID}" class="text-[11px] text-mistral-slate leading-relaxed mt-2 line-clamp-3 hidden"></p>
           </div>
 
           <div class="pt-3 border-t border-mistral-hairline flex items-center justify-between mt-3">
@@ -124,6 +179,7 @@ function renderArtworks(list) {
         </div>
       `;
     }).join('');
+    hydrateDescriptions(list);
   }
 }
 
