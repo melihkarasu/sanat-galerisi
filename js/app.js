@@ -73,37 +73,10 @@ function showLoading(show) {
   }
 }
 
-// ===== Otomatik TR Acıklama Cevirmesi (The Met objectNote → MyMemory API, anahtarsız/CORS-acık) =====
-const DESC_CACHE_KEY = '***';
-
-function getDescCache() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(DESC_CACHE_KEY) || '{}');
-    return (raw && typeof raw === 'object') ? raw : {};
-  } catch(e) { return {}; }
-}
-
-function setDescCache(cache) {
-  try {
-    if (Object.keys(cache).length > 600) return; // kota/doğru orantılı bellek koruması
-    localStorage.setItem(DESC_CACHE_KEY, JSON.stringify(cache));
-  } catch(e) {}
-}
-
-async function translateToTr(text) {
-  const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=en|tr';
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = await res.json();
-  if (data.responseStatus !== 200) throw new Error('ceviri servisi durumu: ' + data.responseStatus);
-  const out = data.responseData && data.responseData.translatedText;
-  if (!out || out === text) throw new Error('bos ceviri');
-  return out;
-}
-
 // Acıklama YALNIZCA detay modalinda gosterilir (kullanicinin 2026-09-29 talimati).
 // Met API'de objectNote alani buyuk olcude bos donuyor (2026-09-29 dogrulandi: 34/34 eser bos);
 // bu yuzden Met notu bos ise Vikipedi ozeti (CORS-acik) kaynak olarak kullanilir.
+// Not (2026-09-30): MyMemory hicbir uygulamaya gomulmez (kullanici kurali) — aciklama kaynak dilinde gosterilir.
 async function hydrateModalDescription(item) {
   const box = document.getElementById('modal-desc-box');
   const el = document.getElementById('modal-art-desc');
@@ -141,25 +114,9 @@ async function hydrateModalDescription(item) {
   // Modal arada kapanmis/baska esere gecmis olabilir
   const isStillOpen = () => currentModalArt && currentModalArt.objectID === oid;
 
-  const cache = getDescCache();
-  let tr = cache[oid];
-  let translated = !!tr;
-  if (!tr) {
-    try {
-      tr = await translateToTr(src);
-      cache[oid] = tr;
-      setDescCache(cache);
-      translated = true;
-    } catch(e) {
-      tr = src; // ceviride hata: Ingilizce orijinal gosterilir
-      translated = false;
-    }
-    if (!isStillOpen()) return;
-  }
-
-  el.innerText = tr;
+  el.innerText = src;
   if (srcEl) {
-    srcEl.innerText = '📖 Kaynak: ' + sourceLabel + (translated ? ' • otomatik cevirilen metin' : ' • otomatik ceiri yapilamadi, orijinal dilinde gosteriliyor');
+    srcEl.innerText = '📖 Kaynak: ' + sourceLabel;
   }
   if (isStillOpen()) box.classList.remove('hidden');
 }
